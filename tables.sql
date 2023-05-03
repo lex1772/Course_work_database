@@ -1,3 +1,5 @@
+CREATE DATABASE course_work_database;
+
 CREATE TABLE vacancies
 (
 	vacancy_id serial PRIMARY KEY,
