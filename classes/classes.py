@@ -1,23 +1,26 @@
+#Импортируем функции
 import psycopg2
 import requests
 import csv
 
 
 class HH:
+    """Класс для работы с API HH с пустым списком вакансий и указанием наименования файла, куда будем загружать данные"""
     list_of_vacancy = []
     file = 'vacancy.csv'
-    """Класс для работы с платформой HeadHunter"""
 
     def csv_vacancies(self):
+        """Функция для записи вакансий в файл CSV"""
         columns = [i for i in self.list_of_vacancy[0].keys()]
         with open(self.file, 'a', newline='', encoding='utf-8') as csvfile:
             fieldnames = columns
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, quoting=csv.QUOTE_NONNUMERIC)
             writer.writeheader()
             for row in self.list_of_vacancy:
                 writer.writerow(row)
 
     def to_vacancy_list(self, element):
+        """Функция для добавления вакансий в список"""
         self.list_of_vacancy.append(element)
 
     def hh_responce(self, page):
@@ -33,7 +36,7 @@ class HH:
         return requests.get(hh_url, hh_params)
 
     def get_request(self):
-        """Функция для получения данных с платформы HeadHunter. Получаем название, зарплату, ссылку, адрес и метро, либо выдаем ошибку, если нет подключения"""
+        """Функция для получения данных с платформы HeadHunter. Получаем данные либо выдаем ошибку, если нет подключения"""
         for i in range(20):
             resp = self.hh_responce(i)
             if resp.status_code == 200:
@@ -41,7 +44,7 @@ class HH:
 
                 for vacancy in vacancies:
                     element = {"employer": vacancy["employer"]["name"], "vacancy_name": vacancy.get("name"),
-                               "salary_from": 0, "salary_to": 0,
+                               "salary": 0,
                                "url": vacancy["alternate_url"],
                                "experience": vacancy["experience"]["name"]}
 
@@ -63,30 +66,30 @@ class HH:
                         try:
                             vacancy["salary"]["from"]
                         except TypeError:
-                            element["salary"]["from"] = 0
+                            element["salary"] = 0
+                        except vacancy["salary"]["from"] == "":
+                            element["salary"] = 0
                         else:
-                            element["salary_from"] = vacancy["salary"]["from"]
+                            if vacancy["salary"]["from"] is not None:
+                                element["salary"] = int(vacancy["salary"]["from"])
                         try:
                             vacancy["salary"]["to"]
                         except TypeError:
-                            element["salary"]["to"] = 0
+                            if element["salary"] != 0:
+                                pass
+                            else:
+                                element["salary"] = 0
+                        except vacancy["salary"]["to"] == "":
+                            if element["salary"] != 0:
+                                pass
+                            else:
+                                element["salary"] = 0
                         else:
-                            element["salary_to"] = vacancy["salary"]["to"]
+                            if vacancy["salary"]["to"] is not None:
+                                element["salary"] = int(vacancy["salary"]["to"])
                     else:
-                        element["salary_from"] = 0
-                        element["salary_to"] = 0
+                        element["salary"] = 0
 
-                    try:
-                        description = f'{vacancy["snippet"]["requirement"]}. {vacancy["snippet"]["responsibility"]}'
-                        element["description"] = description
-                    except TypeError:
-                        try:
-                            element["description"] = vacancy["snippet"]["responsibility"]
-                        except TypeError:
-                            element["description"] = "Не указано"
-                        else:
-                            description = f'{vacancy["snippet"]["requirement"].replace("<highlighttext>", "").replace("</highlighttext>", "")}. {vacancy["snippet"]["responsibility"]}'
-                            element["description"] = description
                     self.to_vacancy_list(element)
 
             else:
@@ -99,78 +102,84 @@ class HH:
 
 
 class DBManager:
-
+    """Класс для работы с базой данных PostgreeSQL"""
+    #Прописываем данные для соединения с базой данных
     conn = psycopg2.connect(
         host='localhost',
-        database='north',
+        database='course_work_database',
         user='postgres',
         password='12345'
     )
 
     def load_vacancies(self):
-        try:
-            with self.conn:
-                with self.conn.cursor() as cur:
-                    with open(HH.file, "r", encoding="utf-8") as file:
-                        rows = csv.reader(file)
-                        for row in rows:
-                            cur.execute("INSERT INTO vacancies VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", tuple(row))
-        finally:
-            self.conn.close()
+        """Функция для загрузки данных в таблицу"""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                with open(HH.file, "r", encoding="utf-8") as file:
+                    file.readline()
+                    rows = csv.reader(file)
+                    for row in rows:
+                        cur.execute(
+                            "INSERT INTO vacancies(employer, vacancy_name, salary, url, experience, metro, address) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                            tuple(row))
 
     def get_companies_and_vacancies_count(self):
-        try:
-            with self.conn:
-                with self.conn.cursor() as cur:
-                    cur.execute("SELECT DISTINCT employer, COUNT(*) FROM vacancies GROUP BY employer ORDER BY COUNT(*) DESC")
-                    rows = cur.fetchall()
-                    for row in rows:
-                        print(row)
-        finally:
-            self.conn.close()
+        """Функция, которая получает список всех компаний и количество вакансий у каждой компании."""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT employer, COUNT(*) FROM vacancies GROUP BY employer ORDER BY COUNT(*) DESC")
+                rows = cur.fetchall()
+                for row in rows:
+                    print(row)
 
     def get_all_vacancies(self):
-        try:
-            with self.conn:
-                with self.conn.cursor() as cur:
-                    cur.execute("SELECT employer, vacancy_name, salary_from, salary_to, url FROM vacancies")
-                    rows = cur.fetchall()
-                    for row in rows:
-                        print(row)
-        finally:
-            self.conn.close()
+        """Функция, которая получает список всех вакансий с указанием названия компании, названия вакансии и зарплаты и ссылки на вакансию."""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT employer, vacancy_name, salary, url FROM vacancies")
+                rows = cur.fetchall()
+                for row in rows:
+                    print(row)
 
     def get_avg_salary(self):
-        try:
-            with self.conn:
-                with self.conn.cursor() as cur:
-                    cur.execute("SELECT AVG(salary_to) FROM vacancies")
-                    rows = cur.fetchall()
-                    for row in rows:
-                        print(row)
-        finally:
-            self.conn.close()
+        """Функция, которая получает среднюю зарплату по вакансиям."""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT AVG(salary) FROM vacancies")
+                rows = cur.fetchall()
+                for row in rows:
+                    print(row)
 
     def get_vacancies_with_higher_salary(self):
-        try:
-            with self.conn:
-                with self.conn.cursor() as cur:
-                    cur.execute("SELECT employer, vacancy_name, salary_from, salary_to, url FROM vacancies WHERE salary_to > AVG(salary_to)")
-                    rows = cur.fetchall()
-                    for row in rows:
-                        print(row)
-        finally:
-            self.conn.close()
+        """Функция, которая получает список всех вакансий, у которых зарплата выше средней по всем вакансиям."""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT employer, vacancy_name, salary, url FROM vacancies WHERE salary > (SELECT AVG(salary) FROM vacancies) ORDER BY salary DESC")
+                rows = cur.fetchall()
+                for row in rows:
+                    print(row)
 
     def get_vacancies_with_keyword(self, keyword):
-        try:
-            with self.conn:
-                with self.conn.cursor() as cur:
-                    cur.execute(f"SELECT employer, vacancy_name, salary_from, salary_to, url FROM vacancies WHERE LOWER(vacancy_name) LIKE %{keyword.lower()}%")
-                    rows = cur.fetchall()
+        """Функция, которая получает список всех вакансий, в названии которых содержатся переданные в метод слова"""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT employer, vacancy_name, salary, url FROM vacancies WHERE LOWER(vacancy_name) LIKE '%{keyword.lower()}%'")
+                rows = cur.fetchall()
+                if len(rows) == 0:
+                    print("По вашему запросу нет данных")
+                else:
                     for row in rows:
                         print(row)
-        finally:
-            self.conn.close()
 
+    def truncate_table(self):
+        """Функция, для очистки таблицы"""
+        with self.conn:
+            with self.conn.cursor() as cur:
+                cur.execute("TRUNCATE TABLE vacancies")
 
+    def conn_close(self):
+        """Функция, для закрытия соединения"""
+        self.conn.close()
