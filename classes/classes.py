@@ -90,6 +90,9 @@ class HH:
                     else:
                         element["salary"] = 0
 
+                    if not isinstance(element["salary"], int):
+                        element["salary"] = 0
+
                     self.to_vacancy_list(element)
 
             else:
